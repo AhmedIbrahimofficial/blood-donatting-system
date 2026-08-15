@@ -1,0 +1,37 @@
+# Environment variables
+.env
+.env.*
+
+# Firebase service account — NEVER commit this
+firebase-service-account.json
+
+# Uploads
+uploads/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Pytest
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Logs
+*.log
