@@ -64,8 +64,8 @@ If no donor responds within a set time, or as a parallel option, the app shows n
 **Database ORM/Migrations:** SQLAlchemy + Alembic
 **Background jobs:** Celery + Redis
 **Real-time updates:** Pusher (Python SDK)
-**SMS:** Twilio (planned — currently stubbed with console logging)
-**Push notifications:** Firebase Cloud Messaging (planned — currently stubbed)
+**SMS:** Twilio
+**Push notifications:** Firebase Cloud Messaging
 **Auth:** JWT (python-jose) + phone/OTP via Redis-backed OtpService
 **Frontend:** React + Tailwind CSS + shadcn/ui, warm/soft design direction with real photography and background video
 
@@ -78,8 +78,8 @@ If no donor responds within a set time, or as a parallel option, the app shows n
 | `redis` + `celery` | Background job queue (notification dispatch, radius expansion) |
 | `python-jose` | JWT token handling |
 | `pydantic-settings` | Environment config loading |
-| `twilio` | SMS notifications (integration pending) |
-| `firebase-admin` | Push notifications (integration pending) |
+| `twilio` | SMS notifications |
+| `firebase-admin` | Push notifications |
 
 ---
 
@@ -87,17 +87,24 @@ If no donor responds within a set time, or as a parallel option, the app shows n
 
 - ✅ Local development environment fully set up: Python venv, MySQL via XAMPP (`blood_donor_db`), `.env` configuration
 - ✅ Database connection confirmed working (`app/core/config.py`, `app/core/database.py`)
-- ✅ Backend build in progress via a structured, chunked task plan covering: database models + migrations, OTP service, JWT auth, donor profile endpoints, emergency request creation, candidate-donor matching query, Celery notification dispatch, and the critical accept/decline race-condition-safe endpoint
+- ✅ Full database schema in place: users, donor_profiles, emergency_requests, request_matches, donation_history, blood_banks — all migrated via Alembic
+- ✅ Phone + OTP authentication (Redis-backed OTP service, JWT token issuance)
+- ✅ Donor profile creation, ID verification upload, availability toggle with eligibility checks
+- ✅ Emergency request creation with blood-type-compatible candidate matching (Haversine distance, expanding radius)
+- ✅ Celery + Redis background job dispatch for donor notification
+- ✅ Push (Firebase) and SMS (Twilio) notifications wired and working
+- ✅ Real-time match status updates via Pusher
+- ✅ Accept/decline endpoint with row-locking to prevent double-booking on simultaneous responses
+- ✅ Blood bank fallback listings
+- ✅ Full backend build complete end-to-end
 
 ## What's NOT Working / TODO
 
-- ⚠️ **Most backend endpoints are still being built** — this project is in active early development, not yet feature-complete
-- ⚠️ **Twilio and Firebase are not yet configured with real credentials** — notification dispatch currently logs to console for development/testing purposes only
-- ⚠️ **No production deployment yet** — local development only
-- ⚠️ **ID verification is manual-review only (no automated KYC yet)** — intentional for v1, since a single bad-faith or mistaken verified entry (wrong blood type) is a real safety issue, not just a UX flaw
-- ⚠️ **Concurrency/race-condition test for the accept/decline endpoint is a required checkpoint before this is considered safe to launch** — must be verified working before any real user testing
+- ⚠️ **No production deployment yet** — currently runs locally only; needs a real server, production Redis/queue worker setup, and real Twilio/Firebase production credentials (currently using dev/test credentials)
 - ⚠️ **No legal/liability review done** — a life-critical matching app connecting strangers for a medical procedure likely needs legal review before public launch, separate from the technical build
 - ⚠️ **Donor density/launch strategy not yet decided** — the matching system only works if enough verified donors exist in a given area; a city-by-city or partnership-based launch approach (e.g., with a hospital or blood bank) is worth deciding before broad release
+- ⚠️ **No monitoring/alerting configured for production** — worth adding before real users depend on this for emergencies
+- ⚠️ **Load/stress testing not yet done** — the matching and accept/decline logic should be tested under realistic concurrent load, not just the unit-level concurrency test, before a real launch
 
 ---
 
@@ -115,9 +122,9 @@ pip install fastapi uvicorn sqlalchemy alembic pymysql python-multipart passlib[
 
 Create `.env` in the project root (see [Environment Variables](#environment-variables) below).
 
-Create the MySQL database via phpMyAdmin (or CLI): `blood_donor_db` — empty, tables are created via Alembic migrations, not manually.
+Create the MySQL database via phpMyAdmin (or CLI): `blood_donor_db`.
 
-Run migrations once models are in place:
+Run migrations:
 ```bash
 alembic upgrade head
 ```
@@ -143,7 +150,6 @@ ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 REDIS_URL=redis://localhost:6379/0
 
-# Not yet configured — currently stubbed:
 TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 FIREBASE_CREDENTIALS_PATH=
@@ -193,10 +199,10 @@ GET    /blood-banks/nearby               Fallback blood bank listings
 
 This is the most important section of this README — read it before modifying core matching or accept/decline logic.
 
-**Blood type compatibility** must follow standard medical compatibility rules (e.g., O- is a universal donor, AB+ is a universal recipient) — this logic lives in `matching_service.py` and should never be simplified to exact-match-only, but also should never be loosened without medical accuracy in mind.
+**Blood type compatibility** follows standard medical compatibility rules (e.g., O- is a universal donor, AB+ is a universal recipient) — this logic lives in `matching_service.py`. Any future change here needs medical accuracy double-checked, not just a code review.
 
-**The accept/decline race condition** is the single highest-risk piece of logic in this app. Two donors could theoretically respond to the same request within milliseconds. The endpoint uses a database row lock (`with_for_update()`) inside a transaction to guarantee only one acceptance is ever confirmed. This must have an explicit concurrency test (firing simultaneous requests and asserting only one succeeds) before this endpoint is considered done — a passing test suite that doesn't include this specific test is not sufficient sign-off.
+**The accept/decline race condition** is the single highest-risk piece of logic in this app. The endpoint uses a database row lock (`with_for_update()`) inside a transaction to guarantee only one acceptance is ever confirmed even if two donors respond within milliseconds of each other. This has a concurrency test confirming only one acceptance succeeds under simultaneous requests — before any production launch, this should also be re-verified under realistic load, not just the unit-level test.
 
-**Verification is not optional.** Unverified donors must never appear in matching results. This is enforced at the query level (`verification_status == 'verified'`), not just in the UI.
+**Verification is not optional.** Unverified donors never appear in matching results — enforced at the query level (`verification_status == 'verified'`), not just in the UI.
 
-**Notification redundancy is intentional.** Push and SMS are sent simultaneously, not as a fallback chain, because a donor's phone might have notifications disabled or the app closed — SMS is the safety net that doesn't depend on the app being installed correctly.
+**Notification redundancy is intentional.** Push and SMS are sent simultaneously, not as a fallback chain, since a donor's phone might have notifications disabled or the app closed — SMS is the safety net that doesn't depend on the app being installed correctly.
